@@ -86,12 +86,11 @@ while true; do
                     fi
                 done
 
-                #Changement du port SSH
-                sed -i 's/^Port 22/Port 2025/' /etc/ssh/sshd_config
-
                 #-----------------------------------------------
                 #-----------Fin du démarrage des services requis
 
+                break
+                
 
             elif [ "$config_choice" == "3" ] ; then
 
@@ -130,6 +129,8 @@ while true; do
                 #----------Fin de la configuration du pare-feu
                 #---------------------------------------------
 
+                break
+
 
             elif [ "$config_choice" == "4" ] ; then
 
@@ -139,6 +140,9 @@ while true; do
 
                 # Sauvegarder le fichier de configuration avant modification
                 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+
+                #Changement du port SSH
+                sed -i 's/^Port 22/Port 2025/' /etc/ssh/sshd_config
 
                 # Redémarrer le service SSH
                 if sudo systemctl restart sshd; then
@@ -151,6 +155,8 @@ while true; do
 
                 #----------Fin de la configuation du SSH
                 #---------------------------------------
+
+                break
 
 
             elif [ "$config_choice" == "5" ] ; then
@@ -222,6 +228,8 @@ EOF
                 #----------Fin de la configuration du DNS
                 #----------------------------------------
 
+                break
+
 
             elif [ "$config_choice" == "6" ] ; then
 
@@ -285,24 +293,226 @@ EOF
                 #----------Fin de la configuration du service web
                 #------------------------------------------------
 
+                break
+
+
+            elif [ "$config_choice" == "7" ] ; then
+
+                #------------------------------------------
+                #----------Début de la configuration du Mail
+
+                echo "Configuration du serveur de mail..."
+
+                # Sauvegarder les fichiers de configuration avant modification
+                cp /etc/postfix/main.cf /etc/postfix/main.cf.bak
+                cp /etc/dovecot/dovecot.conf /etc/dovecot/dovecot.conf.bak
+
+                # Configuration de Postfix
+                tee /etc/postfix/main.cf > /dev/null <<EOF
+                myhostname = site.local
+                mydomain = site.local
+                myorigin = \$mydomain
+                mydestination = \$myhostname, localhost.\$mydomain, localhost
+                relayhost =
+                inet_interfaces = all
+                inet_protocols = ipv4
+                smtpd_banner = \$myhostname ESMTP Postfix
+                mynetworks = 127.0.0.0/8
+                mailbox_size_limit = 0
+                recipient_delimiter = +
+                alias_maps = hash:/etc/aliases
+                alias_database = hash:/etc/aliases
+                home_mailbox = Maildir/
+EOF
+
+                # Configurer Dovecot
+                tee /etc/dovecot/dovecot.conf > /dev/null <<EOF
+                protocols = imap pop3
+                mail_location = maildir:~/Maildir
+                userdb {
+                    driver = passwd
+                }
+                passdb {
+                    driver = pam
+                }
+                service imap-login {
+                    inet_listener imap {
+                        port = 0
+                    }
+                    inet_listener imaps {
+                        port = 993
+                        ssl = yes
+                    }
+                }
+                ssl_cert = </etc/ssl/certs/ssl-cert-snakeoil.pem
+                ssl_key = </etc/ssl/private/ssl-cert-snakeoil.key
+EOF
+
+                # Redémarrer les services de Mail
+                if systemctl restart postfix && systemctl restart dovecot; then
+                    echo "Serveur de mail configuré et services redémarrés avec succès."
+                else
+                    echo "Erreur lors du redémarrage des services de mail."
+                fi
+
+                #----------------------------------------
+                #----------Fin de la configuration du Mail
 
                 break
+
+
+            elif [ "$config_choice" == "8" ] ; then
+
+                #--------------------------------
+                #----------Début du serveur temps
+
+                echo "Configuration du serveur NTP..."
+
+                # Sauvegarde du fichier de configuration s'il existe déjà
+                [ -f /etc/chrony.conf ] && cp /etc/chrony.conf /etc/chrony.conf.bak
+
+                # Configurer chrony.conf
+                tee /etc/chrony.conf > /dev/null <<EOF
+                server 0.pool.ntp.org iburst
+                server 1.pool.ntp.org iburst
+
+                allow 192.168.0.0/24  #Autorise le réseau local à interroger ce serveur
+EOF
+
+                # Vérifier si chrony est installé et activer le service s'il ne l'est pas déjà
+                if systemctl is-active --quiet chronyd; then
+                    echo "Le service NTP est déjà actif. Redémarrage..."
+                else
+                    echo "Le service NTP n'est pas actif. Activation du service..."
+                    systemctl enable --now chronyd
+                fi
+
+                # Redémarrer le service NTP
+                systemctl restart chronyd
+
+                echo "Serveur NTP configuré et service redémarré."
+
+                #----------Fin du serveur temps
+                #------------------------------
+
+
+            elif [ "$config_choice" == "9" ] ; then
+
+                #----------------------------------------------
+                #----------Début de la configuration des backup
+
+                echo "Configuration de la backup avec le serveur tiers..."
+
+                [ ! -d /mnt/nfs/var/log ] && mkdir -p /mnt/nfs/var/log
+                [ ! -d /mnt/nfs/var/www ] && mkdir -p /mnt/nfs/var/www
+                [ ! -d /mnt/nfs/var/srv ] && mkdir -p /mnt/nfs/var/srv
+
+                mount 192.168.0.3:/backups /mnt/nfs/var/log
+                mount 192.168.0.3:/backups /mnt/nfs/var/www
+                mount 192.168.0.3:/backups /mnt/nfs/var/srv
+
+                tee /etc/fstab > /dev/null <<EOF
+                192.168.0.3:/backups /mnt/nfs/var/log nfs defaults 0 0
+                192.168.0.3:/backups /mnt/nfs/var/www nfs defaults 0 0
+                192.168.0.3:/backups /mnt/nfs/var/srv nfs defaults 0 0
+EOF
+
+                rsync -av --delete /var/log/ /mnt/nfs/var/log/
+                rsync -av --delete /var/www/ /mnt/nfs/var/www/
+                rsync -av --delete /var/srv/ /mnt/nfs/var/srv/
+
+                touch /usr/local/bin/backup.sh
+
+                tee /usr/local/bin/backup.sh > /dev/null <<EOF
+                rsync -av --delete /var/log/ /mnt/nfs/var/log/
+                rsync -av --delete /var/www/ /mnt/nfs/var/www/
+                rsync -av --delete /var/srv/ /mnt/nfs/var/srv/
+EOF
+
+                chmod +x /usr/local/bin/backup.sh
+
+                tee -a /var/spool/cron/crontabs/root > /dev/null <<EOF
+                0 2 * * * /usr/local/bin/backup.sh
+EOF
+
+                echo "Serveurs NFS configurés."
+
+                #----------Fin de la configuration des backup
+                #--------------------------------------------
+
 
             #En cas de mauvaise réponse ou hors-sujet
             else
                 echo "Veuillez choisir une réponse valide."
-
             fi
         done
         break
 
+
+
     elif [ "$main_choice" == "2" ] ; then
-        printf "Vous avez sélectionné la partie test. Il est recommandé d'avoir d'abord été faire un tour du
+        echo -e "Vous avez sélectionné la partie test. Il est recommandé d'avoir d'abord été faire un tour du
         côté config pour avoir matière à tester.\n\n"
+        sleep 2
+        echo -e "-> Protocole de setup-test lancé avec succès.\n"
+        sleep 1
+
+        echo -e "Options de test :
+        [1] Tout
+        [2] Services
+        [3] Pare-feu
+        [4] SSH
+        [5] DNS
+        [6] Web
+        [7] Mail
+        [8] NTP
+        [9] NFS\n"
+
+        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " test_choice
+        test_choice="${test_choice:-1}"
+
+        #Début de la boucle pour la partie Test
+        while true; do 
+
+            if [ "$test_choice" == "1" ] ; then
+                break
+            
+
+            elif [ "$test_choice" == "2" ] ; then
+                break
+            
+            elif [ "$test_choice" == "3" ] ; then
+                break
+
+            elif [ "$test_choice" == "4" ] ; then
+                break
+
+            elif [ "$test_choice" == "5" ] ; then
+                break
+
+            elif [ "$test_choice" == "6" ] ; then
+                break
+
+            elif [ "$test_choice" == "7" ] ; then
+                break
+
+            elif [ "$test_choice" == "8" ] ; then
+                break
+
+            elif [ "$test_choice" == "9" ] ; then
+                break
+
+                
+            #En cas de mauvaise réponse ou hors-sujet
+            else
+                echo "Veuillez choisir une réponse valide."
+            fi
+        done
         break
 
     else
         printf "Veuillez sélectionner une entrée valable.\n\n"
 
     fi
+
 done
