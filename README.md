@@ -16,13 +16,13 @@ Installation
 
 Rendez le script exécutable :
 
-    chmod +x setup_serveur.sh
+    chmod +x setup.sh
 
 **Utilisation**
 
     Lancez le script en tant que super-utilisateur (root) ou avec sudo :
 
-    ./setup_serveur.sh
+    ./setup.sh
 
     Choisissez l'option de configuration ou de test :
 
