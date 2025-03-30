@@ -1,5 +1,7 @@
 #!/bin/bash
 
+
+
 #--------------------------------------------------------
 #----------Début de la déclaration des variables globales
 
