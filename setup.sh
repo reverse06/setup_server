@@ -106,29 +106,33 @@ config_ssh() {
                     #------------------------------------------
                     #----------Début de la configuration du SSH
 
-
                     # Sauvegarder le fichier de configuration avant modification
                     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
-                    #Changement du port SSH
-                    sed -i 's/^Port 22/Port 2025/' /etc/ssh/sshd_config
+                    # Changer le port SSH et écouter sur toutes les interfaces
+                    sed -i 's/^#Port 22/Port 2025/' /etc/ssh/sshd_config
+                    sed -i 's/^#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config
+
+                    # Commenter les lignes inutiles liées à "ListenAddress"
+                    sed -i 's/^ListenAddress \*/#ListenAddress \*/' /etc/ssh/sshd_config
+                    sed -i 's/^#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config
+
+                    # Commenter les anciennes lignes de clé SSH
+                    sed -i 's/^#HostKey/ #HostKey/' /etc/ssh/sshd_config
 
                     # Redémarrer le service SSH
                     if systemctl restart sshd; then
-
                         echo "Service SSH redémarré avec succès."
-                        
                     else
-
                         echo "Erreur lors du redémarrage du service SSH."
-
                     fi
 
                     echo "Service SSH configuré. Le port dédié est 2025."
 
-                    #----------Fin de la configuation du SSH
+                    #----------Fin de la configuration du SSH
                     #---------------------------------------
 }
+
 
 config_dns() {
                     #------------------------------------------
@@ -463,8 +467,6 @@ test_firewall() {
                     #-----------------------------------
                     #----------Début du test du pare-feu
 
-                    echo "Début du test du pare-feu..."
-
                     # Vérification des ports ouverts
                     for port in "${expected_ports[@]}"; do
                         if firewall-cmd --list-ports | grep -q "$port"; then
@@ -489,8 +491,6 @@ test_firewall() {
                         done
                     fi
 
-                    echo -e "${BLUE}Test du pare-feu terminé.${RESET}"
-
                     #----------Fin du test du pare-feu
                     #---------------------------------
 }
@@ -498,8 +498,6 @@ test_firewall() {
 test_ssh() {
                     #------------------------------
                     #----------Début du test du SSH
-
-                    echo -e "Début du test du SSH..."
 
                     # Vérification que le port 22 est fermé
                     if firewall-cmd --list-ports | grep -q "22/tcp"; then
@@ -540,8 +538,6 @@ test_ssh() {
                     for result in "${errors_ssh[@]}"; do
                         echo -e "${RED}$result${RESET}"
                     done
-
-                    echo -e "${BLUE}Test du SSH terminé.${RESET}"
 
                     #----------Fin du test sur le SSH
                     #--------------------------------
@@ -979,11 +975,10 @@ while true; do
 
 
     elif [ "$main_choice" == "2" ] ; then
-        echo -e "Vous avez sélectionné la partie test. Il est recommandé d'avoir d'abord été faire un tour du
+        echo -e "Vous avez sélectionné la partie test. Il est recommandé d'avoir d'abord été faire un tour du\
         côté config pour avoir matière à tester.\n\n"
-        sleep 2
+
         echo -e "-> Protocole de setup-test lancé avec succès.\n"
-        sleep 1
 
         echo -e "Options de test :
         [1] Tout
@@ -1009,7 +1004,7 @@ while true; do
                 
                 test_all
 
-                echo "Tous les tests sont terminés."
+                echo -e "${BLEU}Tous les tests sont terminés.${RESET}"
 
                 break
             
@@ -1020,7 +1015,7 @@ while true; do
 
                 test_services
 
-                echo "Test des services terminé."
+                echo -e "${BLEU}Test des services terminé.${RESET}"
 
                 break
             
@@ -1031,7 +1026,7 @@ while true; do
 
                 test_firewall
 
-                echo "Test du firewall terminé."
+                echo -e "${BLEU}Test du pare-feu terminé.${RESET}"
 
                 break
 
@@ -1042,7 +1037,7 @@ while true; do
 
                 test_ssh
 
-                echo "Test du SSH terminé."
+                echo -e "${BLEU}Test du SSH terminé.${RESET}"
 
                 break
 
@@ -1053,7 +1048,7 @@ while true; do
 
                 test_dns
 
-                echo "Test du DNS terminé."
+                echo -e "${BLEU}Test du DNS terminé.${RESET}"
 
                 break
 
@@ -1064,7 +1059,7 @@ while true; do
 
                 test_web
 
-                echo "Test des services web terminé."
+                echo -e "${BLEU}Test des services web terminé.${RESET}"
 
                 break
 
@@ -1075,7 +1070,7 @@ while true; do
 
                 test_mail
 
-                echo "Test des mails terminé."
+                echo -e "${BLEU}Test des mails terminé.${RESET}"
 
                 break
 
@@ -1086,7 +1081,7 @@ while true; do
 
                 test_ntp
 
-                echo "Test NTP terminé."
+                echo -e "${BLEU}Test NTP terminé.${RESET}"
 
                 break
 
@@ -1097,12 +1092,12 @@ while true; do
 
                 test_nfs
 
-                echo "Test NFS terminé."
+                echo -e "${BLEU}Test NFS terminé.${RESET}"
 
                 
             #En cas de mauvaise réponse ou hors-sujet
             else
-                echo "Veuillez choisir une réponse valide."
+                echo "${RED}Veuillez choisir une réponse valide.${RESET}"
             fi
         done
         break
