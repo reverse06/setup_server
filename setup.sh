@@ -88,9 +88,6 @@ config_firewall() {
                     #Service SSH
                     firewall-cmd --permanent --remove-port=22/tcp #->On retire le port SSH par défaut
 
-                    #Ouverture des ports pour les autres services
-                    echo "Début de la configuration du pare-feu..."
-
                     # Ouverture des ports spécifiés dans la liste expected_ports
                     for port in "${expected_ports[@]}"; do
 
@@ -100,8 +97,6 @@ config_firewall() {
 
                     # Recharge de la configuration du pare-feu
                     firewall-cmd --reload
-
-                    echo -e "${BLUE}Configuration du pare-feu terminée.${RESET}"
 
                     #----------Fin de la configuration du pare-feu
                     #---------------------------------------------
@@ -406,192 +401,11 @@ EOF
 #------------------------------------------------------
 
 
+
 #-------------------------------------------------------
 #----------Début de la déclaration des fonctions (tests)
 
-#----------Fin de la déclaration des fonctions (tests)
-#------------------------------------------------------
-
-
-#---------------------------------------
-#----------Début de la boucle principale
-while true; do
-
-    echo -e "\nBienvenue dans ce setup de serveur! Veuillez choisir une option : \n\n[1] : Configuration\n[2] : Test\n"
-    echo -e "\n([1] est sélectionné par défaut)"
-
-
-    #Choix entre la partie Configuration et la partie Test
-    read -p "Please choose a number : " main_choice
-    main_choice="${main_choice:-1}"
-
-    sleep 1
-
-
-    #Début de la structure conditionnelle principale
-    if [ "$main_choice" == "1" ]; then
-        echo -e "\nVous avez sélectionné la partie config. Lancement du protocole de setup...\n"
-        sleep 2
-
-        echo -e "-> Protocole de setup-config lancé avec succès.\n"
-        sleep 1
-        
-        echo -e "Options de configuration :
-        [1] Tout
-        [2] Services
-        [3] Pare-feu
-        [4] SSH
-        [5] DNS
-        [6] Web
-        [7] Mail
-        [8] NTP
-        [9] NFS\n"
-
-        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " config_choice
-        config_choice="${config_choice:-1}"
-
-        #Début de la boucle pour la partie Configuration
-        while true; do
-
-            #Début de la config globale
-            if [ "$config_choice" == "1" ] ; then
-
-                #Appeler toutes les config
-                echo "Début de la configuration complète..."
-
-                config_all
-
-                echo "Configuration complète terminée."
-
-                break
-
-
-            elif [ "$config_choice" == "2" ] ; then
-
-                echo "Début de la configuration des services..."
-
-                config_services
-
-                echo "Configuration des services terminées."
-
-                break
-                
-
-            elif [ "$config_choice" == "3" ] ; then
-
-                echo "Début de la configuration du pare-feu..."
-
-                config_firewall
-
-                echo "Configuration du pare-feu terminée."
-
-                break
-
-
-            elif [ "$config_choice" == "4" ] ; then
-
-                echo "Début de la configuration du SSH..."
-
-                config_ssh
-
-                echo "Configuration du SSH terminée."
-
-                break
-
-
-            elif [ "$config_choice" == "5" ] ; then
-
-                echo "Début de la configuration du DNS..."
-
-                config_dns
-
-                echo "Configuration du DNS terminée."
-
-                break
-
-
-            elif [ "$config_choice" == "6" ] ; then
-
-                echo "Début de la configuration du service web..."
-
-                config_web
-
-                echo "Configuration du service web terminée."
-
-                break
-
-
-            elif [ "$config_choice" == "7" ] ; then
-
-                echo "Début de la configuration du service mail..."
-
-                config_mail
-
-                echo "Configuration du service mail terminée."
-
-                break
-
-
-            elif [ "$config_choice" == "8" ] ; then
-
-                echo "Début de la configuration NTP..."
-
-                config_ntp
-
-                echo "Configuration NTP terminée."
-
-                break
-
-
-            elif [ "$config_choice" == "9" ] ; then
-
-                echo "Début de la configuration NFS..."
-
-                config_nfs
-
-                echo "Configuration NFS terminée."
-
-                break
-
-
-            #En cas de mauvaise réponse ou hors-sujet
-            else
-                echo "Veuillez choisir une réponse valide."
-            fi
-        done
-        break
-
-
-
-    elif [ "$main_choice" == "2" ] ; then
-        echo -e "Vous avez sélectionné la partie test. Il est recommandé d'avoir d'abord été faire un tour du
-        côté config pour avoir matière à tester.\n\n"
-        sleep 2
-        echo -e "-> Protocole de setup-test lancé avec succès.\n"
-        sleep 1
-
-        echo -e "Options de test :
-        [1] Tout
-        [2] Services
-        [3] Pare-feu
-        [4] SSH
-        [5] DNS
-        [6] Web
-        [7] Mail
-        [8] NTP
-        [9] NFS\n"
-
-        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " test_choice
-        test_choice="${test_choice:-1}"
-
-        #Début de la boucle pour la partie Test
-        while true; do 
-
-            if [ "$test_choice" == "1" ] ; then
-
-                # Appeler tous les tests
-                echo "Début du test complet..."
-                test_all() {
+test_all() {
                     test_services
                     test_firewall
                     test_ssh
@@ -600,15 +414,9 @@ while true; do
                     test_mail
                     test_ntp
                     test_nfs
-                }
-                echo "Tous les tests sont terminés."
+}
 
-                break
-            
-
-            elif [ "$test_choice" == "2" ] ; then
-
-                test_services() {
+test_services() {
                     #----------------------------------------
                     #----------Début du test sur les services
 
@@ -649,14 +457,9 @@ while true; do
 
                     #----------Fin du test sur les services
                     #--------------------------------------
-                }
+}
 
-                break
-            
-
-            elif [ "$test_choice" == "3" ] ; then
-                
-                test_firewall() {
+test_firewall() {
                     #-----------------------------------
                     #----------Début du test du pare-feu
 
@@ -690,14 +493,9 @@ while true; do
 
                     #----------Fin du test du pare-feu
                     #---------------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$test_choice" == "4" ] ; then
-
-                test_ssh() {
+test_ssh() {
                     #------------------------------
                     #----------Début du test du SSH
 
@@ -747,14 +545,9 @@ while true; do
 
                     #----------Fin du test sur le SSH
                     #--------------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$test_choice" == "5" ] ; then
-
-                test_dns() {
+test_dns() {
                     #------------------------------
                     #----------Début du test du DNS
 
@@ -790,14 +583,9 @@ while true; do
 
                     #----------Fin du test du DNS
                     #----------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$test_choice" == "6" ] ; then
-
-                test_web() {
+test_web() {
                     #---------------------------
                     #----------Début du test Web
 
@@ -840,14 +628,9 @@ while true; do
 
                     #----------Fin du test Web
                     #-------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$test_choice" == "7" ] ; then
-
-                test_mail() {
+test_mail() {
                     #-------------------------------------
                     #----------Début du test sur les mails
 
@@ -904,14 +687,9 @@ while true; do
 
                     #----------Fin du test sur les mails
                     #-----------------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$test_choice" == "8" ] ; then
-
-                test_ntp() {
+test_ntp() {
                     #---------------------------
                     #----------Début du test NTP
 
@@ -961,14 +739,9 @@ while true; do
 
                     #----------Fin du test NTP
                     #-------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$test_choice" == "9" ] ; then
-
-                test_nfs() {
+test_nfs() {
                     #---------------------------------------
                     #----------Début du test sur les backups
 
@@ -1051,9 +824,280 @@ while true; do
 
                     #----------Fin du test unitaire sur la backup
                     #--------------------------------------------
-                }
+}
+
+
+
+#----------Fin de la déclaration des fonctions (tests)
+#------------------------------------------------------
+
+
+#---------------------------------------
+#----------Début de la boucle principale
+while true; do
+
+    echo -e "\nBienvenue dans ce setup de serveur! Veuillez choisir une option : \n\n[1] : Configuration\n[2] : Test\n"
+    echo -e "\n([1] est sélectionné par défaut)"
+
+
+    #Choix entre la partie Configuration et la partie Test
+    read -p "Please choose a number : " main_choice
+    main_choice="${main_choice:-1}"
+
+
+    #Début de la structure conditionnelle principale
+    if [ "$main_choice" == "1" ]; then
+        echo -e "\nVous avez sélectionné la partie config. Lancement du protocole de setup...\n"
+
+        echo -e "-> Protocole de setup-config lancé avec succès.\n"
+        
+        echo -e "Options de configuration :
+        [1] Tout
+        [2] Services
+        [3] Pare-feu
+        [4] SSH
+        [5] DNS
+        [6] Web
+        [7] Mail
+        [8] NTP
+        [9] NFS\n"
+
+        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " config_choice
+        config_choice="${config_choice:-1}"
+
+        #Début de la boucle pour la partie Configuration
+        while true; do
+
+            #Début de la config globale
+            if [ "$config_choice" == "1" ] ; then
+
+                #Appeler toutes les config
+                echo "Début de la configuration complète..."
+
+                config_all
+
+                echo -e "${BLEU}Configuration complète terminée.${RESET}"
 
                 break
+
+
+            elif [ "$config_choice" == "2" ] ; then
+
+                echo "Début de la configuration des services..."
+
+                config_services
+
+                echo -e "${BLEU}Configuration des services terminées.${RESET}"
+
+                break
+                
+
+            elif [ "$config_choice" == "3" ] ; then
+
+                echo "Début de la configuration du pare-feu..."
+
+                config_firewall
+
+                echo -e "${BLEU}Configuration du pare-feu terminée. Le port du SSH est 2025.${RESET}"
+
+                break
+
+
+            elif [ "$config_choice" == "4" ] ; then
+
+                echo "Début de la configuration du SSH..."
+
+                config_ssh
+
+                echo -e "${BLEU}Configuration du SSH terminée.${RESET}"
+
+                break
+
+
+            elif [ "$config_choice" == "5" ] ; then
+
+                echo "Début de la configuration du DNS..."
+
+                config_dns
+
+                echo -e "${BLEU}Configuration du DNS terminée.${RESET}"
+
+                break
+
+
+            elif [ "$config_choice" == "6" ] ; then
+
+                echo "Début de la configuration du service web..."
+
+                config_web
+
+                echo -e "${BLEU}Configuration du service web terminée.${RESET}"
+
+                break
+
+
+            elif [ "$config_choice" == "7" ] ; then
+
+                echo "Début de la configuration du service mail..."
+
+                config_mail
+
+                echo -e "${BLEU}Configuration du service mail terminée.${RESET}"
+
+                break
+
+
+            elif [ "$config_choice" == "8" ] ; then
+
+                echo "Début de la configuration NTP..."
+
+                config_ntp
+
+                echo "Configuration NTP terminée.${RESET}"
+
+                break
+
+
+            elif [ "$config_choice" == "9" ] ; then
+
+                echo "Début de la configuration NFS..."
+
+                config_nfs
+
+                echo -e "${BLEU}Configuration NFS terminée.${RESET}"
+
+                break
+
+
+            #En cas de mauvaise réponse ou hors-sujet
+            else
+                echo -e "${RED}Veuillez choisir une réponse valide.${RESET}"
+            fi
+        done
+        break
+
+
+
+    elif [ "$main_choice" == "2" ] ; then
+        echo -e "Vous avez sélectionné la partie test. Il est recommandé d'avoir d'abord été faire un tour du
+        côté config pour avoir matière à tester.\n\n"
+        sleep 2
+        echo -e "-> Protocole de setup-test lancé avec succès.\n"
+        sleep 1
+
+        echo -e "Options de test :
+        [1] Tout
+        [2] Services
+        [3] Pare-feu
+        [4] SSH
+        [5] DNS
+        [6] Web
+        [7] Mail
+        [8] NTP
+        [9] NFS\n"
+
+        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " test_choice
+        test_choice="${test_choice:-1}"
+
+        #Début de la boucle pour la partie Test
+        while true; do 
+
+            if [ "$test_choice" == "1" ] ; then
+
+                # Appeler tous les tests
+                echo "Début du test complet..."
+                
+                test_all
+
+                echo "Tous les tests sont terminés."
+
+                break
+            
+
+            elif [ "$test_choice" == "2" ] ; then
+
+                echo "Début du test des services..."
+
+                test_services
+
+                echo "Test des services terminé."
+
+                break
+            
+
+            elif [ "$test_choice" == "3" ] ; then
+                
+                echo "Début du test du firewall..."
+
+                test_firewall
+
+                echo "Test du firewall terminé."
+
+                break
+
+
+            elif [ "$test_choice" == "4" ] ; then
+
+                echo "Début du test du SSH..."
+
+                test_ssh
+
+                echo "Test du SSH terminé."
+
+                break
+
+
+            elif [ "$test_choice" == "5" ] ; then
+
+                echo "Début du test du DNS..."
+
+                test_dns
+
+                echo "Test du DNS terminé."
+
+                break
+
+
+            elif [ "$test_choice" == "6" ] ; then
+
+                echo "Début du test des services web."
+
+                test_web
+
+                echo "Test des services web terminé."
+
+                break
+
+
+            elif [ "$test_choice" == "7" ] ; then
+
+                echo "Début du test des mails..."
+
+                test_mail
+
+                echo "Test des mails terminé."
+
+                break
+
+
+            elif [ "$test_choice" == "8" ] ; then
+
+                echo "Début du test NTP..."
+
+                test_ntp
+
+                echo "Test NTP terminé."
+
+                break
+
+
+            elif [ "$test_choice" == "9" ] ; then
+
+                echo "Début du test NFS..."
+
+                test_nfs
+
+                echo "Test NFS terminé."
 
                 
             #En cas de mauvaise réponse ou hors-sujet
