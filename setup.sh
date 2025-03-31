@@ -22,54 +22,10 @@ packages=("apache2" "btop" "openssh" "nmap" "nfs-kernel-server" "nfs-client" "bi
 #------------------------------------------------------
 
 
+#--------------------------------------------------------
+#----------Début de la déclaration des fonctions (config)
 
-#---------------------------------------
-#----------Début de la boucle principale
-while true; do
-
-    echo -e "\nBienvenue dans ce setup de serveur! Veuillez choisir une option : \n\n[1] : Configuration\n[2] : Test\n"
-    echo -e "\n([1] est sélectionné par défaut)"
-
-
-    #Choix entre la partie Configuration et la partie Test
-    read -p "Please choose a number : " main_choice
-    main_choice="${main_choice:-1}"
-
-    sleep 1
-
-
-    #Début de la structure conditionnelle principale
-    if [ "$main_choice" == "1" ]; then
-        echo -e "\nVous avez sélectionné la partie config. Lancement du protocole de setup...\n"
-        sleep 2
-
-        echo -e "-> Protocole de setup-config lancé avec succès.\n"
-        sleep 1
-        
-        echo -e "Options de configuration :
-        [1] Tout
-        [2] Services
-        [3] Pare-feu
-        [4] SSH
-        [5] DNS
-        [6] Web
-        [7] Mail
-        [8] NTP
-        [9] NFS\n"
-
-        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " config_choice
-        config_choice="${config_choice:-1}"
-
-        #Début de la boucle pour la partie Configuration
-        while true; do
-
-            #Début de la config globale
-            if [ "$config_choice" == "1" ] ; then
-
-                #Appeler toutes les config
-                echo "Début de la configuration complète..."
-
-                config_all() {
+config_all() {
                     config_services
                     config_firewall
                     config_ssh
@@ -78,16 +34,9 @@ while true; do
                     config_mail
                     config_ntp
                     config_nfs
-                }
+}
 
-                echo "Configuration complète terminée."
-
-                break
-
-
-            elif [ "$config_choice" == "2" ] ; then
-
-                config_services() {
+config_services() {
                     echo -e "Configuration du serveur en cours..."
                     sleep 2
 
@@ -130,14 +79,9 @@ while true; do
 
                     #-----------------------------------------------
                     #-----------Fin du démarrage des services requis
-                }
+}
 
-                break
-                
-
-            elif [ "$config_choice" == "3" ] ; then
-
-                config_firewall() {
+config_firewall() {
                     #-----------------------------------------------
                     #----------Début de la configuration du pare-feu
 
@@ -161,14 +105,9 @@ while true; do
 
                     #----------Fin de la configuration du pare-feu
                     #---------------------------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$config_choice" == "4" ] ; then
-
-                config_ssh() {
+config_ssh() {
                     #------------------------------------------
                     #----------Début de la configuration du SSH
 
@@ -194,14 +133,9 @@ while true; do
 
                     #----------Fin de la configuation du SSH
                     #---------------------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$config_choice" == "5" ] ; then
-
-                config_dns() {
+config_dns() {
                     #------------------------------------------
                     #----------Début de la configuartion du DNS
                     echo "Configuration du serveur DNS..."
@@ -265,86 +199,76 @@ EOF
 
                     #----------Fin de la configuration du DNS
                     #----------------------------------------
-                }
+}
 
-                break
+config_web() {
+                    #--------------------------------------------------
+                    #----------Début de la configuration du service web
 
+                    echo "Configuration du serveur web..."
 
-                elif [ "$config_choice" == "6" ] ; then
+                    # Création du fichier de configuration de VirtualHost
+                    tee /etc/apache2/vhosts.d/site.local.conf > /dev/null <<EOF
+                    <VirtualHost *:80>
+                        ServerName site.local
+                        ServerAlias www.site.local
+                        DocumentRoot /var/www/site.local
 
-                    config_web() {
-                        #--------------------------------------------------
-                        #----------Début de la configuration du service web
+                        <Directory /var/www/site.local>
+                            AllowOverride All
+                            Require all granted
+                        </Directory>
 
-                        echo "Configuration du serveur web..."
-
-                        # Création du fichier de configuration de VirtualHost
-                        tee /etc/apache2/vhosts.d/site.local.conf > /dev/null <<EOF
-                        <VirtualHost *:80>
-                            ServerName site.local
-                            ServerAlias www.site.local
-                            DocumentRoot /var/www/site.local
-
-                            <Directory /var/www/site.local>
-                                AllowOverride All
-                                Require all granted
-                            </Directory>
-
-                            ErrorLog /var/log/apache2/site.local-error.log
-                            CustomLog /var/log/apache2/site.local-access.log combined
-                        </VirtualHost>
+                        ErrorLog /var/log/apache2/site.local-error.log
+                        CustomLog /var/log/apache2/site.local-access.log combined
+                    </VirtualHost>
 EOF
 
-                        # Activation du site, en vérifiant s'il n'est pas déjà activé
+                    # Activation du site, en vérifiant s'il n'est pas déjà activé
 
-                        if ! apache2ctl -S | grep -q "site.local"; then
+                    if ! apache2ctl -S | grep -q "site.local"; then
 
-                            a2ensite site.local
+                        a2ensite site.local
 
-                        else
+                    else
 
-                            echo "Le site site .local est déjà activé."
-                            
-                        fi
+                        echo "Le site site .local est déjà activé."
+                        
+                    fi
 
-                        # Redémarrer Apache pour appliquer les modifications
-                        systemctl restart apache2
+                    # Redémarrer Apache pour appliquer les modifications
+                    systemctl restart apache2
 
-                        # Vérification de l'existence de l'arborescence avant de la créer
-                        if [ ! -d "/var/www/site.local" ]; then
-                            mkdir -p /var/www/site.local
-                            echo "Arborescence créée."
-                        else
-                            echo "L'arborescence /var/www/site.local existe déjà."
-                        fi
+                    # Vérification de l'existence de l'arborescence avant de la créer
+                    if [ ! -d "/var/www/site.local" ]; then
+                        mkdir -p /var/www/site.local
+                        echo "Arborescence créée."
+                    else
+                        echo "L'arborescence /var/www/site.local existe déjà."
+                    fi
 
-                        # Vérification de l'existence du fichier index avant de le créer
-                        if [ ! -f "/var/www/site.local/index.html" ]; then
-                            echo "<h1>Test réussi !</h1>" > /var/www/site.local/index.html
-                            echo "Fichier index.html créé."
-                        else
-                            echo "Le fichier index.html existe déjà."
-                        fi
+                    # Vérification de l'existence du fichier index avant de le créer
+                    if [ ! -f "/var/www/site.local/index.html" ]; then
+                        echo "<h1>Test réussi !</h1>" > /var/www/site.local/index.html
+                        echo "Fichier index.html créé."
+                    else
+                        echo "Le fichier index.html existe déjà."
+                    fi
 
-                        # Attribution des bonnes permissions
-                        chown -R wwwrun:www /var/www/site.local
-                        chmod -R 755 /var/www/site.local
+                    # Attribution des bonnes permissions
+                    chown -R wwwrun:www /var/www/site.local
+                    chmod -R 755 /var/www/site.local
 
-                        # Redémarrer Apache pour que tout soit pris en compte
-                        systemctl restart apache2
+                    # Redémarrer Apache pour que tout soit pris en compte
+                    systemctl restart apache2
 
-                        echo "Serveur web configuré."
+                    echo "Serveur web configuré."
 
-                        #----------Fin de la configuration du service web
-                        #------------------------------------------------
-                    }
+                    #----------Fin de la configuration du service web
+                    #------------------------------------------------
+}
 
-                    break
-
-
-            elif [ "$config_choice" == "7" ] ; then
-
-                config_mail() {
+config_mail() {
                     #------------------------------------------
                     #----------Début de la configuration du Mail
 
@@ -402,14 +326,9 @@ EOF
 
                     #----------------------------------------
                     #----------Fin de la configuration du Mail
-                }
+}
 
-                break
-
-
-            elif [ "$config_choice" == "8" ] ; then
-
-                config_ntp() {
+config_ntp() {
                     #--------------------------------
                     #----------Début du serveur temps
 
@@ -440,14 +359,9 @@ EOF
 
                     #----------Fin du serveur temps
                     #------------------------------
-                }
+}
 
-                break
-
-
-            elif [ "$config_choice" == "9" ] ; then
-
-                config_nfs() {
+config_nfs() {
                     #----------------------------------------------
                     #----------Début de la configuration des backup
 
@@ -486,7 +400,156 @@ EOF
 
                     #----------Fin de la configuration des backup
                     #--------------------------------------------
-                }
+}
+
+#----------Fin de la déclaration des fonctions (config)
+#------------------------------------------------------
+
+
+#-------------------------------------------------------
+#----------Début de la déclaration des fonctions (tests)
+
+#----------Fin de la déclaration des fonctions (tests)
+#------------------------------------------------------
+
+
+#---------------------------------------
+#----------Début de la boucle principale
+while true; do
+
+    echo -e "\nBienvenue dans ce setup de serveur! Veuillez choisir une option : \n\n[1] : Configuration\n[2] : Test\n"
+    echo -e "\n([1] est sélectionné par défaut)"
+
+
+    #Choix entre la partie Configuration et la partie Test
+    read -p "Please choose a number : " main_choice
+    main_choice="${main_choice:-1}"
+
+    sleep 1
+
+
+    #Début de la structure conditionnelle principale
+    if [ "$main_choice" == "1" ]; then
+        echo -e "\nVous avez sélectionné la partie config. Lancement du protocole de setup...\n"
+        sleep 2
+
+        echo -e "-> Protocole de setup-config lancé avec succès.\n"
+        sleep 1
+        
+        echo -e "Options de configuration :
+        [1] Tout
+        [2] Services
+        [3] Pare-feu
+        [4] SSH
+        [5] DNS
+        [6] Web
+        [7] Mail
+        [8] NTP
+        [9] NFS\n"
+
+        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " config_choice
+        config_choice="${config_choice:-1}"
+
+        #Début de la boucle pour la partie Configuration
+        while true; do
+
+            #Début de la config globale
+            if [ "$config_choice" == "1" ] ; then
+
+                #Appeler toutes les config
+                echo "Début de la configuration complète..."
+
+                config_all
+
+                echo "Configuration complète terminée."
+
+                break
+
+
+            elif [ "$config_choice" == "2" ] ; then
+
+                echo "Début de la configuration des services..."
+
+                config_services
+
+                echo "Configuration des services terminées."
+
+                break
+                
+
+            elif [ "$config_choice" == "3" ] ; then
+
+                echo "Début de la configuration du pare-feu..."
+
+                config_firewall
+
+                echo "Configuration du pare-feu terminée."
+
+                break
+
+
+            elif [ "$config_choice" == "4" ] ; then
+
+                echo "Début de la configuration du SSH..."
+
+                config_ssh
+
+                echo "Configuration du SSH terminée."
+
+                break
+
+
+            elif [ "$config_choice" == "5" ] ; then
+
+                echo "Début de la configuration du DNS..."
+
+                config_dns
+
+                echo "Configuration du DNS terminée."
+
+                break
+
+
+            elif [ "$config_choice" == "6" ] ; then
+
+                echo "Début de la configuration du service web..."
+
+                config_web
+
+                echo "Configuration du service web terminée."
+
+                break
+
+
+            elif [ "$config_choice" == "7" ] ; then
+
+                echo "Début de la configuration du service mail..."
+
+                config_mail
+
+                echo "Configuration du service mail terminée."
+
+                break
+
+
+            elif [ "$config_choice" == "8" ] ; then
+
+                echo "Début de la configuration NTP..."
+
+                config_ntp
+
+                echo "Configuration NTP terminée."
+
+                break
+
+
+            elif [ "$config_choice" == "9" ] ; then
+
+                echo "Début de la configuration NFS..."
+
+                config_nfs
+
+                echo "Configuration NFS terminée."
 
                 break
 
