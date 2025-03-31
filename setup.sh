@@ -133,71 +133,85 @@ config_ssh() {
                     #---------------------------------------
 }
 
-
 config_dns() {
-                    #------------------------------------------
-                    #----------Début de la configuartion du DNS
-                    echo "Configuration du serveur DNS..."
+    # Sauvegarder les fichiers de configuration existants
+    [ -f /etc/named.conf ] && cp /etc/named.conf /etc/named.conf.bak
+    [ -f /var/lib/named/monsite.local.zone ] && cp /var/lib/named/monsite.local.zone /var/lib/named/monsite.local.zone.bak
+    [ -f /var/lib/named/0.168.192.in-addr.arpa.zone ] && cp /var/lib/named/0.168.192.in-addr.arpa.zone /var/lib/named/0.168.192.in-addr.arpa.zone.bak
 
-                    # Sauvegarder les fichiers de config avant toute modification
-                    [ -f /etc/named.conf ] && cp /etc/named.conf /etc/named.conf.bak
-                    [ -f /var/lib/named/site.local.zone ] && cp /var/lib/named/site.local.zone /var/lib/named/site.local.zone.bak
-                    [ -f /var/lib/named/0.168.192.in-addr.arpa.zone ] && cp /var/lib/named/0.168.192.in-addr.arpa.zone /var/lib/named/0.168.192.in-addr.arpa.zone.bak
+    # Configuration du fichier /etc/named.conf avec l'option forward only et autorisation de récursion
+    tee /etc/named.conf > /dev/null <<EOF
+options {
+    directory "/var/lib/named";
+    allow-query { any; };
+    allow-recursion { any; };  # Autoriser la récursivité pour toutes les IP (à restreindre en production)
+    recursion yes;
+    forward only;
+    forwarders {
+        1.1.1.1;
+        8.8.8.8;
+    };
+};
 
-                    # Configurer named.conf
-                    tee /etc/named.conf > /dev/null <<EOF
-                    zone "monsite.local" IN {
-                        type master;
-                        file "/var/lib/named/monsite.local.zone";
-                    };
+zone "monsite.local" IN {
+    type master;
+    file "/var/lib/named/monsite.local.zone";
+};
 
-                    zone "0.168.192.in-addr.arpa" IN {
-                        type master;
-                        file "/var/lib/named/0.168.192.in-addr.arpa.zone";
-                    };
-
-                    forwarders {
-                        1.1.1.1;
-                        8.8.8.8;
-                    };
+zone "0.168.192.in-addr.arpa" IN {
+    type master;
+    file "/var/lib/named/0.168.192.in-addr.arpa.zone";
+};
 EOF
-                    # Configurer la zone pour le domaine principal
-                    tee /var/lib/named/site.local.zone > /dev/null <<EOF
-                    \$TTL 86400
-                    @   IN  SOA site.local. admin.site.local. (
-                            2025022801 ; Serial
-                            3600       ; Refresh
-                            1800       ; Retry
-                            604800     ; Expire
-                            86400 )    ; Minimum TTL
 
-                        IN  NS  ns.site.local.
-                    ns  IN  A   192.168.0.2  ; IP du serveur DNS
-                    @   IN  A   192.168.0.2  ; IP du serveur Web
-                    www IN  A   192.168.0.2  ; Alias pour le serveur Web
+    # Configuration de la zone principale pour monsite.local
+    tee /var/lib/named/monsite.local.zone > /dev/null <<EOF
+\$TTL 86400
+@   IN  SOA monsite.local. admin.monsite.local. (
+        2025033101 ; Serial
+        3600       ; Refresh
+        1800       ; Retry
+        604800     ; Expire
+        86400 )    ; Minimum TTL
+
+@       IN  NS  ns.monsite.local.
+ns      IN  A   192.168.0.2    ; IP du serveur DNS
+@       IN  A   192.168.0.2    ; IP du serveur Web
+www     IN  A   192.168.0.2    ; Alias pour le serveur Web
 EOF
-                    # Configurer la zone pour la reverse DNS
-                    tee /var/lib/named/0.168.192.in-addr.arpa.zone > /dev/null <<EOF
-                    \$TTL 86400
-                    @   IN  SOA monsite.local. admin.monsite.local. (
-                            2025022801 ; Serial
-                            3600       ; Refresh
-                            1800       ; Retry
-                            604800     ; Expire
-                            86400 )    ; Minimum TTL
 
-                        IN  NS  ns.site.local.
-                    2   IN  PTR site.local.
+    # Configuration de la zone reverse pour 192.168.0.x
+    tee /var/lib/named/0.168.192.in-addr.arpa.zone > /dev/null <<EOF
+\$TTL 86400
+@   IN  SOA monsite.local. admin.monsite.local. (
+        2025033101 ; Serial
+        3600       ; Refresh
+        1800       ; Retry
+        604800     ; Expire
+        86400 )    ; Minimum TTL
+
+@       IN  NS  ns.monsite.local.
+2       IN  PTR monsite.local.
 EOF
-                    # Redémarrer le service DNS
-                    if systemctl restart named.service; then
-                        echo "Serveur DNS configuré et service redémarré avec succès."
-                    else
-                        echo "Erreur lors du redémarrage du service DNS."
-                    fi
 
-                    #----------Fin de la configuration du DNS
-                    #----------------------------------------
+    # Vérification de la configuration
+    echo "Vérification de la configuration..."
+    if named-checkconf /etc/named.conf && \
+       named-checkzone monsite.local /var/lib/named/monsite.local.zone && \
+       named-checkzone 0.168.192.in-addr.arpa /var/lib/named/0.168.192.in-addr.arpa.zone; then
+        echo "La configuration est correcte."
+    else
+        echo "${ROUGE}Des erreurs ont été détectées dans la configuration. Merci de vérifier les fichiers.${RESET}"
+        return 1
+    fi
+
+    # Redémarrer le service DNS
+    echo "Redémarrage du service DNS..."
+    if systemctl restart named.service; then
+        echo "Serveur DNS configuré et service redémarré avec succès."
+    else
+        echo -e "${ROUGE}Erreur lors du redémarrage du service DNS. Consultez 'journalctl -xeu named.service' pour plus d'informations.${RESET}"
+    fi
 }
 
 config_web() {
@@ -481,13 +495,13 @@ test_firewall() {
                         echo -e "${GREEN}Tous les ports nécessaires sont ouverts.${RESET}"
                     else
                         for error in "${errors_firewall[@]}"; do
-                            echo -e "${RED}$error${RESET}"
+                            echo -e "${ROUGE}$error${RESET}"
                         done
                     fi
 
                     if [ ${#success_firewall[@]} -gt 0 ]; then
                         for success in "${success_firewall[@]}"; do
-                            echo -e "${GREEN}$success${RESET}"
+                            echo -e "${VERT}$success${RESET}"
                         done
                     fi
 
@@ -532,11 +546,11 @@ test_ssh() {
 
                     # Affichage des résultats du test SSH
                     for result in "${success_ssh[@]}"; do
-                        echo -e "${GREEN}$result${RESET}"
+                        echo -e "${VERT}$result${RESET}"
                     done
 
                     for result in "${errors_ssh[@]}"; do
-                        echo -e "${RED}$result${RESET}"
+                        echo -e "${ROUGE}$result${RESET}"
                     done
 
                     #----------Fin du test sur le SSH
@@ -544,48 +558,46 @@ test_ssh() {
 }
 
 test_dns() {
-                    #------------------------------
-                    #----------Début du test du DNS
+    #------------------------------
+    #---------- Début du test du DNS
 
-                    echo -e "Début du test sur le DNS..."
+    errors_dns=()
+    success_dns=()
 
-                    errors_dns=()
-                    success_dns=()
+    # Vérifier l'état du service bind (named.service)
+    if ! systemctl is-active --quiet named; then
+        errors_dns+=("Le service bind (named.service) n'est actuellement pas actif.")
+    else
+        success_dns+=("Le service bind (named.service) est actif.")
+    fi
 
-                    # Commencer par vérifier l'état du service bind (named.service)
-                    if ! systemctl is-active --quiet named; then
-                        errors_dns+=("Le service bind (named.service) n'est actuellement pas actif.")
-                    else
-                        success_dns+=("Le service bind (named.service) est actif.")
-                    fi
+    # Vérifier la résolution d'un domaine via le DNS local
+    # La commande dig doit renvoyer au moins une adresse IPv4 valide
+    dns_result=$(dig @127.0.0.1 google.com +short)
+    if [[ -z "$dns_result" ]]; then
+        errors_dns+=("La résolution de google.com via le serveur DNS local a échoué.")
+    elif ! echo "$dns_result" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
+        errors_dns+=("La résolution de google.com ne renvoie pas d'adresse IPv4 valide.")
+    else
+        success_dns+=("La résolution de google.com via le serveur DNS local fonctionne correctement.")
+    fi
 
-                    # Vérification de la résolution du domaine en local
-                    if ! dig @127.0.0.1 google.com +short | grep -qE "^(1.1.1.1|8.8.8.8)"; then
-                        errors_dns+=("Les requêtes externes ne semblent pas être redirigées vers 1.1.1.1 ou 8.8.8.8.")
-                    else
-                        success_dns+=("Les requêtes DNS sont correctement redirigées vers 1.1.1.1 ou 8.8.8.8.")
-                    fi
+    # Affichage des résultats du test DNS
+    for result in "${success_dns[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
 
-                    # Affichage des résultats du test DNS
-                    for result in "${success_dns[@]}"; do
-                        echo -e "${GREEN}$result${RESET}"
-                    done
+    for result in "${errors_dns[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
 
-                    for result in "${errors_dns[@]}"; do
-                        echo -e "${RED}$result${RESET}"
-                    done
-
-                    echo -e "${BLUE}Test sur le DNS terminé.${RESET}"
-
-                    #----------Fin du test du DNS
-                    #----------------------------
+    #---------- Fin du test du DNS
+    #----------------------------
 }
 
 test_web() {
                     #---------------------------
                     #----------Début du test Web
-
-                    echo -e "Début du test sur le serveur web..."
 
                     errors_web=()
                     success_web=()
@@ -613,14 +625,12 @@ test_web() {
 
                     # Affichage des résultats du test web
                     for result in "${success_web[@]}"; do
-                        echo -e "${GREEN}$result${RESET}"
+                        echo -e "${VERT}$result${RESET}"
                     done
 
                     for result in "${errors_web[@]}"; do
-                        echo -e "${RED}$result${RESET}"
+                        echo -e "${ROUGE}$result${RESET}"
                     done
-
-                    echo -e "${BLUE}Test sur le serveur web terminé.${RESET}"
 
                     #----------Fin du test Web
                     #-------------------------
@@ -629,8 +639,6 @@ test_web() {
 test_mail() {
                     #-------------------------------------
                     #----------Début du test sur les mails
-
-                    echo "Début du test sur les mails..."
 
                     errors_mail=()
                     success_mail=()
@@ -672,14 +680,12 @@ test_mail() {
 
                     # Affichage des résultats du test mail
                     for result in "${success_mail[@]}"; do
-                        echo -e "${GREEN}$result${RESET}"
+                        echo -e "${VERT}$result${RESET}"
                     done
 
                     for result in "${errors_mail[@]}"; do
-                        echo -e "${RED}$result${RESET}"
+                        echo -e "${ROUGE}$result${RESET}"
                     done
-
-                    echo -e "${BLUE}Test sur les mails terminé.${RESET}"
 
                     #----------Fin du test sur les mails
                     #-----------------------------------
@@ -688,8 +694,6 @@ test_mail() {
 test_ntp() {
                     #---------------------------
                     #----------Début du test NTP
-
-                    echo "Début du test sur le temps..."
 
                     errors_tmp=()
                     success_tmp=()
@@ -724,14 +728,12 @@ test_ntp() {
 
                     # Affichage des résultats du test NTP
                     for result in "${success_tmp[@]}"; do
-                        echo -e "${GREEN}$result${RESET}"
+                        echo -e "${VERT}$result${RESET}"
                     done
 
                     for result in "${errors_tmp[@]}"; do
-                        echo -e "${RED}$result${RESET}"
+                        echo -e "${ROUGE}$result${RESET}"
                     done
-
-                    echo -e "${BLUE}Test sur le temps terminé.${RESET}"
 
                     #----------Fin du test NTP
                     #-------------------------
@@ -809,14 +811,12 @@ test_nfs() {
 
                     # Affichage des résultats du test de backup
                     for result in "${success_backup[@]}"; do
-                        echo -e "${GREEN}$result${RESET}"
+                        echo -e "${VERT}$result${RESET}"
                     done
 
                     for result in "${errors_backup[@]}"; do
-                        echo -e "${RED}$result${RESET}"
+                        echo -e "${ROUGE}$result${RESET}"
                     done
-
-                    echo -e "${BLUE}Test unitaire sur la backup terminé.${RESET}"
 
                     #----------Fin du test unitaire sur la backup
                     #--------------------------------------------
@@ -1097,13 +1097,13 @@ while true; do
                 
             #En cas de mauvaise réponse ou hors-sujet
             else
-                echo "${RED}Veuillez choisir une réponse valide.${RESET}"
+                echo "${ROUGE}Veuillez choisir une réponse valide.${RESET}"
             fi
         done
         break
 
     else
-        printf "Veuillez sélectionner une entrée valable.\n\n"
+        echo -e "Veuillez sélectionner une entrée valable.\n"
 
     fi
 
