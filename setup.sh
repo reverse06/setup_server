@@ -49,7 +49,7 @@ config_services() {
 
                     # Installation des paquets
                     for package in "${packages[@]}"; do
-                        if ! zypper info "$package" &>/dev/null; then
+                        if ! rpm -q "$package" &>/dev/null; then
                             echo -e "Installation de $package..."
                             zypper install -y "$package"
                         else
