@@ -16,7 +16,7 @@ expected_ports=("2025/tcp" "80/tcp" "443/tcp" "53/tcp" "53/udp" "25/tcp" "465/tc
 
 # Listes des services et paquets utilisés dans le script
 services=("apache2" "named" "sshd" "postfix" "dovecot" "chronyd")
-packages=("apache2" "btop" "openssh" "nmap" "nfs-kernel-server" "nfs-client" "bind" "bind-utils" "chrony" "postfix" "dovecot")
+packages=("apache2" "btop" "openssh" "nmap" "nfs-kernel-server" "nfs-client" "bind" "bind-utils" "chrony" "postfix" "dovecot" "systemd-sysvcompat")
 
 #----------Fin de la déclaration des variables globales
 #------------------------------------------------------
@@ -289,65 +289,81 @@ EOF
     #------------------------------------------------
 }
 
-
 config_mail() {
-                    #------------------------------------------
-                    #----------Début de la configuration du Mail
+    #------------------------------------------
+    #---------- Début de la configuration du Mail
 
-                    echo "Configuration du serveur de mail..."
+    echo "Configuration du serveur de mail..."
 
-                    # Sauvegarder les fichiers de configuration avant modification
-                    cp /etc/postfix/main.cf /etc/postfix/main.cf.bak
-                    cp /etc/dovecot/dovecot.conf /etc/dovecot/dovecot.conf.bak
+    # Sauvegarder les fichiers de configuration avant modification
+    cp /etc/postfix/main.cf /etc/postfix/main.cf.bak
+    cp /etc/dovecot/dovecot.conf /etc/dovecot/dovecot.conf.bak
 
-                    # Configuration de Postfix
-                    tee /etc/postfix/main.cf > /dev/null <<EOF
-                    myhostname = site.local
-                    mydomain = site.local
-                    myorigin = \$mydomain
-                    mydestination = \$myhostname, localhost.\$mydomain, localhost
-                    relayhost =
-                    inet_interfaces = all
-                    inet_protocols = ipv4
-                    smtpd_banner = \$myhostname ESMTP Postfix
-                    mynetworks = 127.0.0.0/8
-                    mailbox_size_limit = 0
-                    recipient_delimiter = +
-                    alias_maps = hash:/etc/aliases
-                    alias_database = hash:/etc/aliases
-                    home_mailbox = Maildir/
+    # Configuration de Postfix sans indentation dans le here-doc
+    tee /etc/postfix/main.cf > /dev/null <<'EOF'
+myhostname = site.local
+mydomain = site.local
+myorigin = $mydomain
+mydestination = $myhostname, localhost.$mydomain, localhost
+relayhost =
+inet_interfaces = all
+inet_protocols = ipv4
+smtpd_banner = $myhostname ESMTP Postfix
+mynetworks = 127.0.0.0/8
+mailbox_size_limit = 0
+recipient_delimiter = +
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+home_mailbox = Maildir/
+setgid_group = mail
+compatibility_level = 3.6
 EOF
-                    # Configurer Dovecot
-                    tee /etc/dovecot/dovecot.conf > /dev/null <<EOF
-                    protocols = imap pop3
-                    mail_location = maildir:~/Maildir
-                    userdb {
-                        driver = passwd
-                    }
-                    passdb {
-                        driver = pam
-                    }
-                    service imap-login {
-                        inet_listener imap {
-                            port = 0
-                        }
-                        inet_listener imaps {
-                            port = 993
-                            ssl = yes
-                        }
-                    }
-                    ssl_cert = </etc/ssl/certs/ssl-cert-snakeoil.pem
-                    ssl_key = </etc/ssl/private/ssl-cert-snakeoil.key
-EOF
-                    # Redémarrer les services de Mail
-                    if systemctl restart postfix && systemctl restart dovecot; then
-                        echo "Serveur de mail configuré et services redémarrés avec succès."
-                    else
-                        echo "Erreur lors du redémarrage des services de mail."
-                    fi
 
-                    #----------------------------------------
-                    #----------Fin de la configuration du Mail
+    # Configuration de Dovecot sans indentation dans le here-doc
+    tee /etc/dovecot/dovecot.conf > /dev/null <<'EOF'
+protocols = imap pop3
+mail_location = maildir:~/Maildir
+userdb {
+  driver = passwd
+}
+passdb {
+  driver = pam
+}
+service imap-login {
+  inet_listener imap {
+    port = 0
+  }
+  inet_listener imaps {
+    port = 993
+    ssl = yes
+  }
+}
+ssl_cert = </etc/ssl/certs/ssl-cert-snakeoil.pem
+ssl_key = </etc/ssl/private/ssl-cert-snakeoil.key
+EOF
+
+    # Désactivation du chroot dans Postfix
+    if [ -f /etc/postfix/master.cf ]; then
+        cp /etc/postfix/master.cf /etc/postfix/master.cf.bak
+        sed -i 's/^\(\S\+\s\+\S\+\s\+\S\+\s\+\S\+\s\+\)y/\1n/' /etc/postfix/master.cf
+        echo "Chroot désactivé pour les services Postfix dans /etc/postfix/master.cf."
+    fi
+
+    # Création d'un lien symbolique pour que Postfix trouve le répertoire attendu
+    if [ ! -d /usr/libexec/postfix ]; then
+        mkdir -p /usr/libexec
+        ln -s /usr/lib/postfix /usr/libexec/postfix
+        echo "Lien symbolique /usr/libexec/postfix -> /usr/lib/postfix créé."
+    fi
+
+    # Redémarrer les services de Mail
+    if systemctl restart postfix && systemctl restart dovecot; then
+        echo "Serveur de mail configuré et services redémarrés avec succès."
+    else
+        echo -e "${ROUGE}Erreur lors du redémarrage des services de mail.${RESET}"
+    fi
+
+    #---------- Fin de la configuration du Mail
 }
 
 config_ntp() {
@@ -647,58 +663,56 @@ test_web() {
 }
 
 test_mail() {
-                    #-------------------------------------
-                    #----------Début du test sur les mails
+    #-------------------------------------
+    #---------- Début du test sur les mails
 
-                    errors_mail=()
-                    success_mail=()
+    errors_mail=()
+    success_mail=()
 
-                    # Vérification de l'activation des services postfix et dovecot
-                    for svc in postfix dovecot; do
-                        if ! systemctl is-active --quiet "$svc"; then
-                            errors_mail+=("Le service $svc n'est pas actif.")
-                        else
-                            success_mail+=("Le service $svc est actif.")
-                        fi
-                    done
+    # Vérification de l'activation des services postfix et dovecot
+    for svc in postfix dovecot; do
+        if ! systemctl is-active --quiet "$svc"; then
+            errors_mail+=("Le service $svc n'est pas actif.")
+        else
+            success_mail+=("Le service $svc est actif.")
+        fi
+    done
 
-                    # Vérification de l'ouverture des ports mail
-                    ports=("25" "465" "587" "143" "993")
-                    for port in "${ports[@]}"; do
-                        if ! ss -tln | grep -q ":$port"; then
-                            errors_mail+=("Le port $port (mail) n'est pas ouvert.")
-                        else
-                            success_mail+=("Le port $port (mail) est ouvert.")
-                        fi
-                    done
+    # Vérification de l'ouverture des ports mail
+    ports=("25" "465" "587" "143" "993")
+    for port in "${ports[@]}"; do
+        if ! ss -tln | grep -q ":$port"; then
+            errors_mail+=("Le port $port (mail) n'est pas ouvert.")
+        else
+            success_mail+=("Le port $port (mail) est ouvert.")
+        fi
+    done
 
-                    # Test d'envoi de mail local - Vérification que sendmail est installé
-                    if ! command -v sendmail &> /dev/null; then
-                        errors_mail+=("La commande sendmail n'est pas disponible.")
-                    else
-                        echo "Test mail" | sendmail root
-                        sleep 2 # Attente pour que le mail soit traîté
-                        success_mail+=("L'envoi de mail local fonctionne.")
-                    fi
+    # Test d'envoi de mail local – vérification que sendmail est installé
+    if ! command -v sendmail &>/dev/null; then
+        errors_mail+=("La commande sendmail n'est pas disponible.")
+    else
+        echo "Test mail" | sendmail root
+        sleep 2  # Attente pour que le mail soit traité
 
-                    # Vérification de la réception du mail
-                    if ! mail -H | grep -q "Test mail" && ! doveadmn fetch -u root mailbox INBOX | grep -q "Test mail"; then
-                        errors_mail+=("L'envoi ou la réception de mail ne fonctionne pas correctement.")
-                    else
-                        success_mail+=("L'envoi et la réception de mail fonctionnent correctement.")
-                    fi
+        # Vérification que le mail a bien été déposé dans le Maildir de root
+        if [ -d /root/Maildir/new ] && [ "$(ls -A /root/Maildir/new)" ]; then
+            success_mail+=("L'envoi de mail local fonctionne.")
+        else
+            errors_mail+=("L'envoi de mail local ne semble pas fonctionner correctement.")
+        fi
+    fi
 
-                    # Affichage des résultats du test mail
-                    for result in "${success_mail[@]}"; do
-                        echo -e "${VERT}$result${RESET}"
-                    done
+    # Affichage des résultats du test mail avec les couleurs
+    for result in "${success_mail[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
 
-                    for result in "${errors_mail[@]}"; do
-                        echo -e "${ROUGE}$result${RESET}"
-                    done
+    for result in "${errors_mail[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
 
-                    #----------Fin du test sur les mails
-                    #-----------------------------------
+    #---------- Fin du test sur les mails
 }
 
 test_ntp() {
