@@ -215,71 +215,80 @@ EOF
 }
 
 config_web() {
-                    #--------------------------------------------------
-                    #----------Début de la configuration du service web
 
-                    echo "Configuration du serveur web..."
+    #--------------------------------------------------
+    #---------- Début de la configuration du service web
 
-                    # Création du fichier de configuration de VirtualHost
-                    tee /etc/apache2/vhosts.d/site.local.conf > /dev/null <<EOF
-                    <VirtualHost *:80>
-                        ServerName site.local
-                        ServerAlias www.site.local
-                        DocumentRoot /var/www/site.local
+    echo "Configuration du serveur web..."
 
-                        <Directory /var/www/site.local>
-                            AllowOverride All
-                            Require all granted
-                        </Directory>
+    # Créer l'arborescence DocumentRoot si elle n'existe pas
+    if [ ! -d "/var/www/site.local" ]; then
+        mkdir -p /var/www/site.local
+        echo "Arborescence /var/www/site.local créée."
+    else
+        echo "L'arborescence /var/www/site.local existe déjà."
+    fi
 
-                        ErrorLog /var/log/apache2/site.local-error.log
-                        CustomLog /var/log/apache2/site.local-access.log combined
-                    </VirtualHost>
+    # Créer le fichier index.html s'il n'existe pas
+    if [ ! -f "/var/www/site.local/index.html" ]; then
+        echo "<h1>Test réussi !</h1>" > /var/www/site.local/index.html
+        echo "Fichier index.html créé."
+    else
+        echo "Le fichier index.html existe déjà."
+    fi
+
+    # Attribution des permissions correctes
+    chown -R wwwrun:www /var/www/site.local
+    chmod -R 755 /var/www/site.local
+
+    # Création du fichier de configuration du VirtualHost
+    tee /etc/apache2/vhosts.d/site.local.conf > /dev/null <<EOF
+<VirtualHost *:80>
+    ServerName site.local
+    ServerAlias www.site.local
+    DocumentRoot /var/www/site.local
+
+    <Directory /var/www/site.local>
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog /var/log/apache2/site.local-error.log
+    CustomLog /var/log/apache2/site.local-access.log combined
+</VirtualHost>
 EOF
 
-                    # Activation du site, en vérifiant s'il n'est pas déjà activé
+    # Activation du site si nécessaire
+    if ! apache2ctl -S | grep -q "site.local"; then
+        a2ensite site.local
+    else
+        echo "Le site site.local est déjà activé."
+    fi
 
-                    if ! apache2ctl -S | grep -q "site.local"; then
+    # Ajout de l'entrée site.local dans /etc/hosts si elle n'existe pas déjà
+    if ! grep -q "site.local" /etc/hosts; then
+        echo "192.168.0.2 site.local" >> /etc/hosts
+        echo "Entrée 'site.local' ajoutée dans /etc/hosts."
+    else
+        echo "L'entrée 'site.local' existe déjà dans /etc/hosts."
+    fi
 
-                        a2ensite site.local
+    # Définition globale du ServerName dans Apache, si non déjà défini
+    if ! grep -q "^ServerName" /etc/apache2/httpd.conf; then
+        echo "ServerName site.local" >> /etc/apache2/httpd.conf
+        echo "Directive 'ServerName site.local' ajoutée dans /etc/apache2/httpd.conf."
+    else
+        echo "La directive ServerName est déjà définie dans /etc/apache2/httpd.conf."
+    fi
 
-                    else
+    # Redémarrer Apache pour appliquer les modifications
+    systemctl restart apache2
 
-                        echo "Le site site .local est déjà activé."
-                        
-                    fi
-
-                    # Redémarrer Apache pour appliquer les modifications
-                    systemctl restart apache2
-
-                    # Vérification de l'existence de l'arborescence avant de la créer
-                    if [ ! -d "/var/www/site.local" ]; then
-                        mkdir -p /var/www/site.local
-                        echo "Arborescence créée."
-                    else
-                        echo "L'arborescence /var/www/site.local existe déjà."
-                    fi
-
-                    # Vérification de l'existence du fichier index avant de le créer
-                    if [ ! -f "/var/www/site.local/index.html" ]; then
-                        echo "<h1>Test réussi !</h1>" > /var/www/site.local/index.html
-                        echo "Fichier index.html créé."
-                    else
-                        echo "Le fichier index.html existe déjà."
-                    fi
-
-                    # Attribution des bonnes permissions
-                    chown -R wwwrun:www /var/www/site.local
-                    chmod -R 755 /var/www/site.local
-
-                    # Redémarrer Apache pour que tout soit pris en compte
-                    systemctl restart apache2
-
-                    echo "Serveur web configuré."
-
-                    #----------Fin de la configuration du service web
-                    #------------------------------------------------
+    echo "Serveur web configuré."
+    #---------- Fin de la configuration du service web
+    #------------------------------------------------
 }
+
 
 config_mail() {
                     #------------------------------------------
@@ -596,44 +605,45 @@ test_dns() {
 }
 
 test_web() {
-                    #---------------------------
-                    #----------Début du test Web
+    #---------------------------
+    #---------- Début du test Web
 
-                    errors_web=()
-                    success_web=()
+    errors_web=()
+    success_web=()
 
-                    # Vérification de l'activation du service apache
-                    if ! systemctl is-active --quiet apache2; then
-                        errors_web+=("Il semblerait que le service apache2 ne soit pas actuellement actif.")
-                    else
-                        success_web+=("Le service apache2 est actif.")
-                    fi
+    # Vérification de l'activation du service apache2
+    if ! systemctl is-active --quiet apache2; then
+        errors_web+=("Il semblerait que le service apache2 ne soit pas actuellement actif.")
+    else
+        success_web+=("Le service apache2 est actif.")
+    fi
 
-                    # Vérification de l'ouverture du port 80
-                    if ! ss -tln | grep -q ":80 "; then
-                        errors_web+=("Le port 80 semble être fermé.")
-                    else
-                        success_web+=("Le port 80 est ouvert.")
-                    fi
+    # Vérification de l'ouverture du port 80
+    if ! ss -tln | grep -q ":80 "; then
+        errors_web+=("Le port 80 semble être fermé.")
+    else
+        success_web+=("Le port 80 est ouvert.")
+    fi
 
-                    # Vérification de l'accessibilité du serveur web
-                    if ! curl -s --head http://192.168.0.2 | grep -q "200 OK"; then
-                        errors_web+=("Le serveur web ne répond pas correctement (pas de réponse http 200).")
-                    else
-                        success_web+=("Le serveur web répond correctement avec un code http 200.")
-                    fi
+    # Vérification de l'accessibilité du serveur web :
+    # Utilisation de 127.0.0.1 avec un header 'Host' pour forcer l'utilisation du VirtualHost.
+    if ! curl -s --head http://127.0.0.1 -H "Host: site.local" | grep -q "200 OK"; then
+        errors_web+=("Le serveur web ne répond pas correctement (pas de réponse HTTP 200).")
+    else
+        success_web+=("Le serveur web répond correctement avec un code HTTP 200.")
+    fi
 
-                    # Affichage des résultats du test web
-                    for result in "${success_web[@]}"; do
-                        echo -e "${VERT}$result${RESET}"
-                    done
+    # Affichage des résultats du test web avec les couleurs
+    for result in "${success_web[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
 
-                    for result in "${errors_web[@]}"; do
-                        echo -e "${ROUGE}$result${RESET}"
-                    done
+    for result in "${errors_web[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
 
-                    #----------Fin du test Web
-                    #-------------------------
+    #---------- Fin du test Web
+    #---------------------------
 }
 
 test_mail() {
