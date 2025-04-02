@@ -51,7 +51,7 @@ config_services() {
                     for package in "${packages[@]}"; do
                         if ! rpm -q "$package" &>/dev/null; then
                             echo -e "Installation de $package..."
-                            zypper install -y "$package"
+                            dnf install -y "$package"
                         else
                             echo -e "$package est déjà installé."
                         fi
