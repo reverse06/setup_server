@@ -1,8 +1,21 @@
 #!/bin/bash
 
-#Déclaration des variables globales
+#Déclaration des variables globales (effets du texte)
 GRAS="\e[1m"
+VERT="\e[32m"
+ROUGE="\e[31m"
+BLEU="\e[34m"
 RESET="\e[0m"
+# Déclaration des variables globales (stockage des résultats)
+DETECTED_PM=""
+DETECTED_FW=""
+DETECTED_WS=""
+DETECTED_DNS=""
+DETECTED_SSH=""
+DETECTED_MAIL=""
+DETECTED_MSG=""
+DETECTED_NFS=""
+DETECTED_MONITOR=""
 
 
 #---------------------------------------------
@@ -648,9 +661,702 @@ EOF
 #-----------------------------------------------------
 #----------Déclaration des fonctions de config de test
 
+test_all_all() {
+    test_ip
+    test_services
+    test_firewall
+    test_ssh
+    test_dns
+    test_web
+    test_mail
+    test_ntp
+    test_nfs
+}
+
+test_ip() {
+    echo -e "${BLEU}Vérification de la configuration IP du client...${RESET}"
+
+    # Déclaration des listes locales pour éviter les conflits globaux
+    local errors_ip=()
+    local success_ip=()
+
+    # Récupération de l'adresse IP actuelle configurée sur les interfaces réseau (ignorer 127.0.0.1)
+    current_ip=$(ip -o -4 addr show | grep -v "127.0.0.1" | awk '{print $4}' | cut -d'/' -f1)
+
+    if [ -n "$current_ip" ]; then
+        # Définir automatiquement SERVER_IP
+        SERVER_IP="$current_ip"
+        success_ip+=("L'adresse IP actuelle configurée sur l'interface réseau est : $SERVER_IP")
+    else
+        errors_ip+=("Impossible de détecter l'adresse IP actuelle sur les interfaces réseau.")
+    fi
+
+    # Calcul automatique de BACKUP_IP (adresse suivante)
+    if [ -n "$SERVER_IP" ]; then
+        ip_base=$(echo "$SERVER_IP" | cut -d'.' -f1-3)
+        last_octet=$(echo "$SERVER_IP" | cut -d'.' -f4)
+        
+        if (( last_octet < 255 )); then
+            BACKUP_IP="${ip_base}.$((last_octet + 1))"
+            success_ip+=("L'adresse IP de backup déterminée automatiquement serait : $BACKUP_IP")
+        else
+            errors_ip+=("Impossible de définir l'adresse de backup, le dernier octet est déjà à 255.")
+        fi
+    fi
+
+    # Vérification de la présence de l'adresse IP dans /etc/hosts
+    if grep -q "$SERVER_IP" /etc/hosts; then
+        success_ip+=("L'adresse IP $SERVER_IP est correctement configurée dans /etc/hosts.")
+    else
+        errors_ip+=("L'adresse IP $SERVER_IP n'est pas présente dans /etc/hosts.")
+    fi
+
+    if grep -q "$BACKUP_IP" /etc/hosts; then
+        success_ip+=("L'adresse IP du serveur de backup $BACKUP_IP est correctement configurée dans /etc/hosts.")
+    else
+        errors_ip+=("L'adresse IP du serveur de backup $BACKUP_IP n'est pas présente dans /etc/hosts.")
+    fi
+
+    # Affichage des réussites
+    for result in "${success_ip[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
+
+    # Affichage des erreurs
+    for result in "${errors_ip[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
+
+    echo -e "${BLEU}Test de vérification IP terminé.${RESET}"
+}
+
+test_services() {
+
+    echo -e "${BLEU}Début du test sur les services...${RESET}"
+
+    # Déclaration des listes comme locales pour éviter les conflits globaux
+    local errors_serv=()
+    local success_serv=()
+    local pkg_command=""
+    local services=()
+
+    # Détection de la commande à utiliser pour vérifier les paquets installés
+    case "$DETECTED_PM" in
+        "apt"|"apt-get"|"dpkg")
+            pkg_command="dpkg -l"
+            ;;
+        "dnf"|"yum"|"rpm")
+            pkg_command="rpm -q"
+            ;;
+        "pacman")
+            pkg_command="pacman -Q"
+            ;;
+        "zypper")
+            pkg_command="rpm -q"
+            ;;
+        *)
+            echo -e "${ROUGE}Gestionnaire de paquets non reconnu : $DETECTED_PM${RESET}"
+            return 1
+            ;;
+    esac
+
+    # Vérification de l'installation des paquets
+    for pkg in "${packages[@]}"; do
+        if $pkg_command "$pkg" &>/dev/null; then
+            success_serv+=("Paquet installé : $pkg")
+        else
+            errors_serv+=("Paquet non installé : $pkg")
+        fi
+    done
+
+    # Détection dynamique des services en fonction de leur type
+    case "$DETECTED_WEB" in
+        "apache2") services+=("apache2") ;;
+        "httpd") services+=("httpd") ;;
+        "httpd24") services+=("httpd24") ;;
+    esac
+
+    case "$DETECTED_MAIL" in
+        "postfix") services+=("postfix") ;;
+        "mail_server") services+=("postfix") ;;
+    esac
+
+    case "$DETECTED_MESSAGING" in
+        "dovecot") services+=("dovecot") ;;
+        "dovecot_core") services+=("dovecot") ;;
+    esac
+
+    case "$DETECTED_NTP" in
+        "chronyd") services+=("chronyd") ;;
+        "ntpd") services+=("ntpd") ;;
+        "systemd-timesyncd") services+=("systemd-timesyncd") ;;
+    esac
+
+    case "$DETECTED_NFS" in
+        "nfs-kernel-server") services+=("nfs-server") ;;
+        "nfs-utils") services+=("nfs-server") ;;
+        "nfs-common") services+=("nfs-server") ;;
+    esac
+
+    case "$DETECTED_FW" in
+        "firewalld") services+=("firewalld") ;;
+        "ufw") services+=("ufw") ;;
+        "iptables") services+=("iptables") ;;
+        "nftables") services+=("nftables") ;;
+        "pf") services+=("pf") ;;
+    esac
+
+    case "$DETECTED_SSH" in
+        "openssh_server"|"openssh") services+=("sshd") ;;
+        "dropbear") services+=("dropbear") ;;
+        "tinyssh") services+=("tinysshd") ;;
+    esac
+
+    # Vérification de l'activation des services
+    for svc in "${services[@]}"; do
+        if systemctl is-active --quiet "$svc"; then
+            success_serv+=("Service actif : $svc")
+        else
+            errors_serv+=("Service non actif : $svc")
+        fi
+    done
+
+    # Affichage des réussites en vert
+    for success in "${success_serv[@]}"; do
+        echo -e "${VERT}${success}${RESET}"
+    done
+
+    # Affichage des erreurs en rouge
+    for error in "${errors_serv[@]}"; do
+        echo -e "${ROUGE}${error}${RESET}"
+    done
+
+    echo -e "${BLEU}Test sur les services terminé.${RESET}"
+}
+
+test_firewall() {
+    echo -e "${BLEU}Début du test sur le firewall...${RESET}"
+
+    # Déclaration des listes locales pour éviter les conflits globaux
+    local errors_firewall=()
+    local success_firewall=()
+    local firewall_command=""
+
+    # Détection du nom du firewall en fonction de $DETECTED_FW
+    case "$DETECTED_FW" in
+        "firewalld")
+            firewall_command="firewall-cmd --list-ports"
+            ;;
+        "ufw")
+            firewall_command="ufw status"
+            ;;
+        "iptables")
+            firewall_command="iptables -L -n -v"
+            ;;
+        "nftables")
+            firewall_command="nft list ruleset"
+            ;;
+        "pf")
+            firewall_command="pfctl -sr"
+            ;;
+        *)
+            errors_firewall+=("Service Firewall non reconnu : $DETECTED_FW")
+            echo -e "${ROUGE}Service Firewall non reconnu : $DETECTED_FW${RESET}"
+            return 1
+            ;;
+    esac
+
+    # Vérification des ports ouverts (en fonction du firewall détecté)
+    for port in "${expected_ports[@]}"; do
+        case "$DETECTED_FW" in
+            "firewalld")
+                if $firewall_command | grep -q "$port"; then
+                    success_firewall+=("Port $port est ouvert.")
+                else
+                    errors_firewall+=("Port $port n'est pas ouvert.")
+                fi
+                ;;
+            "ufw")
+                if $firewall_command | grep -q "ALLOW.*$port"; then
+                    success_firewall+=("Port $port est ouvert.")
+                else
+                    errors_firewall+=("Port $port n'est pas ouvert.")
+                fi
+                ;;
+            "iptables")
+                if $firewall_command | grep -q "$port"; then
+                    success_firewall+=("Port $port est ouvert.")
+                else
+                    errors_firewall+=("Port $port n'est pas ouvert.")
+                fi
+                ;;
+            "nftables")
+                if $firewall_command | grep -q "dport $port"; then
+                    success_firewall+=("Port $port est ouvert.")
+                else
+                    errors_firewall+=("Port $port n'est pas ouvert.")
+                fi
+                ;;
+            "pf")
+                if $firewall_command | grep -q "port $port"; then
+                    success_firewall+=("Port $port est ouvert.")
+                else
+                    errors_firewall+=("Port $port n'est pas ouvert.")
+                fi
+                ;;
+        esac
+    done
+
+    # Affichage des réussites
+    for success in "${success_firewall[@]}"; do
+        echo -e "${VERT}$success${RESET}"
+    done
+
+    # Affichage des erreurs
+    for error in "${errors_firewall[@]}"; do
+        echo -e "${ROUGE}$error${RESET}"
+    done
+
+    echo -e "${BLEU}Test du firewall terminé.${RESET}"
+}
+
+test_ssh() {
+    echo -e "${BLEU}Début du test SSH...${RESET}"
+    
+    # Déclaration des listes locales pour éviter les conflits globaux
+    local errors_ssh=()
+    local success_ssh=()
+    local ssh_service_name=""
+
+    # Détection du nom du service SSH en fonction de $DETECTED_SSH
+    case "$DETECTED_SSH" in
+        "openssh_server"|"openssh") ssh_service_name="sshd" ;;
+        "dropbear") ssh_service_name="dropbear" ;;
+        "tinyssh") ssh_service_name="tinysshd" ;;
+        *)
+            errors_ssh+=("Service SSH non reconnu : $DETECTED_SSH")
+            echo -e "${ROUGE}Service SSH non reconnu : $DETECTED_SSH${RESET}"
+            return 1
+            ;;
+    esac
+
+    # Vérification que le port 22 est fermé
+    if firewall-cmd --list-ports | grep -q "22/tcp"; then
+        errors_ssh+=("Port 22 est encore ouvert.")
+    else
+        success_ssh+=("Port 22 est fermé.")
+    fi
+
+    # Vérification que le port 2025 est ouvert
+    if firewall-cmd --list-ports | grep -q "2025/tcp"; then
+        success_ssh+=("Port 2025 est ouvert.")
+    else
+        errors_ssh+=("Port 2025 n'est pas ouvert.")
+    fi
+
+    # Vérification que SSH écoute sur le port 2025
+    if ss -tuln | grep -q ":2025"; then
+        success_ssh+=("SSH écoute sur le port 2025.")
+    else
+        errors_ssh+=("SSH n'écoute pas sur le port 2025.")
+    fi
+
+    # Vérification que le service SSH est actif
+    if systemctl is-active --quiet "$ssh_service_name"; then
+        success_ssh+=("Service SSH ($ssh_service_name) est actif.")
+    else
+        errors_ssh+=("Service SSH ($ssh_service_name) n'est pas actif.")
+    fi
+
+    # Affichage des réussites
+    for result in "${success_ssh[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
+
+    # Affichage des erreurs
+    for result in "${errors_ssh[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
+
+    echo -e "${BLEU}Test SSH terminé.${RESET}"
+}
 
 
-#----------Fin de déclaration des fonctions de config
+test_dns() {
+
+    echo -e "${BLEU}Début du test DNS...${RESET}"
+
+    # Déclaration des listes locales pour éviter les conflits globaux
+    local errors_dns=()
+    local success_dns=()
+    local service_name=""
+
+    # Détection du nom du service DNS en fonction de la valeur de $DETECTED_DNS
+    case "$DETECTED_DNS" in
+        "bind9")
+            service_name="bind9"
+            ;;
+        "bind")
+            service_name="named"
+            ;;
+        "bind_utils")
+            service_name="named"
+            ;;
+        "unbound")
+            service_name="unbound"
+            ;;
+        *)
+            errors_dns+=("Service DNS non reconnu : $DETECTED_DNS")
+            echo -e "${ROUGE}Service DNS non reconnu : $DETECTED_DNS${RESET}"
+            return 1
+            ;;
+    esac
+
+    # Vérifier l'état du service DNS détecté
+    if ! systemctl is-active --quiet "$service_name"; then
+        errors_dns+=("Le service DNS ($service_name) n'est actuellement pas actif.")
+    else
+        success_dns+=("Le service DNS ($service_name) est actif.")
+    fi
+
+    # Vérifier la résolution d'un domaine via le DNS local
+    dns_result=$(dig @127.0.0.1 google.com +short)
+    if [[ -z "$dns_result" ]]; then
+        errors_dns+=("La résolution de google.com via le serveur DNS local a échoué.")
+    elif ! echo "$dns_result" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
+        errors_dns+=("La résolution de google.com ne renvoie pas d'adresse IPv4 valide.")
+    else
+        success_dns+=("La résolution de google.com via le serveur DNS local fonctionne correctement.")
+    fi
+
+    # Affichage des réussites
+    for result in "${success_dns[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
+
+    # Affichage des erreurs
+    for result in "${errors_dns[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
+
+    echo -e "${BLEU}Test DNS terminé.${RESET}"
+}
+
+test_web() {
+    echo -e "${BLEU}Début du test Web...${RESET}"
+
+    # Déclaration des listes locales pour éviter les conflits globaux
+    local errors_web=()
+    local success_web=()
+    local web_service_name=""
+    local web_port=80
+
+    # Détection dynamique du serveur web configuré
+    case "$DETECTED_WEB" in
+        "apache2")
+            web_service_name="apache2"
+            ;;
+        "httpd")
+            web_service_name="httpd"
+            ;;
+        "httpd24")
+            web_service_name="httpd24"
+            ;;
+        "nginx")
+            web_service_name="nginx"
+            web_port=80
+            ;;
+        *)
+            errors_web+=("Service Web non reconnu : $DETECTED_WEB")
+            echo -e "${ROUGE}Service Web non reconnu : $DETECTED_WEB${RESET}"
+            return 1
+            ;;
+    esac
+
+    # Vérification de l'activation du service Web détecté
+    if systemctl is-active --quiet "$web_service_name"; then
+        success_web+=("Le service Web ($web_service_name) est actif.")
+    else
+        errors_web+=("Le service Web ($web_service_name) n'est pas actif.")
+    fi
+
+    # Vérification de l'ouverture du port
+    if ss -tln | grep -q ":$web_port "; then
+        success_web+=("Le port $web_port est ouvert.")
+    else
+        errors_web+=("Le port $web_port semble être fermé.")
+    fi
+
+    # Vérification de l'accessibilité du serveur web avec curl
+    if curl -s --head "http://127.0.0.1:$web_port" -H "Host: site.local" | grep -q "200 OK"; then
+        success_web+=("Le serveur web répond correctement avec un code HTTP 200.")
+    else
+        errors_web+=("Le serveur web ne répond pas correctement (pas de réponse HTTP 200).")
+    fi
+
+    # Affichage des résultats du test web avec les couleurs
+    for result in "${success_web[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
+
+    for result in "${errors_web[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
+
+    echo -e "${BLEU}Test Web terminé.${RESET}"
+}
+
+test_mail() {
+    echo -e "${BLEU}Début du test Mail...${RESET}"
+
+    # Déclaration des listes locales pour éviter les conflits globaux
+    local errors_mail=()
+    local success_mail=()
+    local mail_services=()
+
+    # Détection dynamique des services de messagerie configurés
+    case "$DETECTED_MAIL" in
+        "postfix"|"mail_server") mail_services+=("postfix") ;;
+    esac
+
+    case "$DETECTED_MESSAGING" in
+        "dovecot"|"dovecot_core") mail_services+=("dovecot") ;;
+    esac
+
+    # Vérification de l'activation des services de messagerie détectés
+    for svc in "${mail_services[@]}"; do
+        if systemctl is-active --quiet "$svc"; then
+            success_mail+=("Le service $svc est actif.")
+        else
+            errors_mail+=("Le service $svc n'est pas actif.")
+        fi
+    done
+
+    # Vérification de l'ouverture des ports mail standards
+    ports=("25" "465" "587" "143" "993")
+    for port in "${ports[@]}"; do
+        if ss -tln | grep -q ":$port"; then
+            success_mail+=("Le port $port (mail) est ouvert.")
+        else
+            errors_mail+=("Le port $port (mail) n'est pas ouvert.")
+        fi
+    done
+
+    # Test d'envoi de mail local - vérification que sendmail est disponible
+    if command -v sendmail &>/dev/null; then
+        echo "Test mail" | sendmail root
+        sleep 2  # Attente pour que le mail soit traité
+
+        # Vérification que le mail a bien été déposé dans le Maildir de root
+        if [ -d /root/Maildir/new ] && [ "$(ls -A /root/Maildir/new)" ]; then
+            success_mail+=("L'envoi de mail local fonctionne.")
+        else
+            errors_mail+=("L'envoi de mail local ne semble pas fonctionner correctement.")
+        fi
+    else
+        errors_mail+=("La commande sendmail n'est pas disponible.")
+    fi
+
+    # Affichage des réussites en vert
+    for result in "${success_mail[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
+
+    # Affichage des erreurs en rouge
+    for result in "${errors_mail[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
+
+    echo -e "${BLEU}Test Mail terminé.${RESET}"
+}
+
+test_ntp() {
+    echo -e "${BLEU}Début du test NTP...${RESET}"
+
+    # Déclaration des listes locales pour éviter les conflits globaux
+    local errors_ntp=()
+    local success_ntp=()
+    local ntp_service_name=""
+
+    # Détection dynamique du service NTP configuré
+    case "$DETECTED_NTP" in
+        "chronyd")
+            ntp_service_name="chronyd"
+            ;;
+        "ntpd")
+            ntp_service_name="ntpd"
+            ;;
+        "systemd-timesyncd")
+            ntp_service_name="systemd-timesyncd"
+            ;;
+        *)
+            errors_ntp+=("Service NTP non reconnu : $DETECTED_NTP")
+            echo -e "${ROUGE}Service NTP non reconnu : $DETECTED_NTP${RESET}"
+            return 1
+            ;;
+    esac
+
+    # Vérification de l'activation du service NTP détecté
+    if systemctl is-active --quiet "$ntp_service_name"; then
+        success_ntp+=("Le service $ntp_service_name (NTP) est actif.")
+    else
+        errors_ntp+=("Le service $ntp_service_name (NTP) ne semble pas être actif.")
+    fi
+
+    # Vérification de l'ouverture du port NTP (UDP 123)
+    if ss -uln | grep -q ":123"; then
+        success_ntp+=("Le port 123/UDP (NTP) est ouvert.")
+    else
+        errors_ntp+=("Il semblerait que le port 123/UDP (NTP) ne soit pas ouvert.")
+    fi
+
+    # Vérification de la synchronisation du temps
+    if [ "$ntp_service_name" = "chronyd" ]; then
+        if chronyc tracking | grep -q "Reference ID"; then
+            success_ntp+=("Le serveur NTP ($ntp_service_name) est synchronisé avec une source de temps.")
+        else
+            errors_ntp+=("Le serveur NTP ($ntp_service_name) ne semble pas synchronisé avec une source de temps.")
+        fi
+    elif [ "$ntp_service_name" = "ntpd" ]; then
+        if ntpq -p 127.0.0.1 &>/dev/null; then
+            success_ntp+=("Le serveur NTP ($ntp_service_name) est synchronisé avec une source de temps.")
+        else
+            errors_ntp+=("Le serveur NTP ($ntp_service_name) ne semble pas synchronisé avec une source de temps.")
+        fi
+    elif [ "$ntp_service_name" = "systemd-timesyncd" ]; then
+        if timedatectl status | grep -q "NTP synchronized: yes"; then
+            success_ntp+=("Le serveur NTP ($ntp_service_name) est synchronisé avec une source de temps.")
+        else
+            errors_ntp+=("Le serveur NTP ($ntp_service_name) ne semble pas synchronisé avec une source de temps.")
+        fi
+    fi
+
+    # Affichage des réussites en vert
+    for result in "${success_ntp[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
+
+    # Affichage des erreurs en rouge
+    for result in "${errors_ntp[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
+
+    echo -e "${BLEU}Test NTP terminé.${RESET}"
+}
+
+test_nfs() {
+    echo -e "${BLEU}Début du test NFS...${RESET}"
+
+    # Déclaration des listes locales pour éviter les conflits globaux
+    local errors_backup=()
+    local success_backup=()
+    local nfs_service_name=""
+    local nfs_ports=("2049" "111")  # Ports courants utilisés par NFS
+
+    # Détection dynamique du service NFS configuré
+    case "$DETECTED_NFS" in
+        "nfs-kernel-server")
+            nfs_service_name="nfs-server"
+            ;;
+        "nfs-utils")
+            nfs_service_name="nfs-server"
+            ;;
+        "nfs-common")
+            nfs_service_name="nfs-server"
+            ;;
+        *)
+            errors_backup+=("Service NFS non reconnu : $DETECTED_NFS")
+            echo -e "${ROUGE}Service NFS non reconnu : $DETECTED_NFS${RESET}"
+            return 1
+            ;;
+    esac
+
+    # Vérification de l'activation du service NFS détecté
+    if systemctl is-active --quiet "$nfs_service_name"; then
+        success_backup+=("Le service NFS ($nfs_service_name) est actif.")
+    else
+        errors_backup+=("Le service NFS ($nfs_service_name) n'est pas actif.")
+    fi
+
+    # Vérification de l'ouverture des ports NFS
+    for port in "${nfs_ports[@]}"; do
+        if ss -tuln | grep -q ":$port"; then
+            success_backup+=("Le port $port (NFS) est ouvert.")
+        else
+            errors_backup+=("Le port $port (NFS) n'est pas ouvert.")
+        fi
+    done
+
+    # Test de sauvegarde et restauration
+    SOURCE="/var/www"
+    BACKUP_DIR="/tmp/backup_test"
+    BACKUP_FILE="/tmp/backup_www.tar.gz"
+    RESTORE_DIR="/tmp/www_restored"
+
+    # Vérifier si le dossier source existe
+    if [ ! -d "$SOURCE" ]; then
+        errors_backup+=("Le dossier source $SOURCE n'existe pas.")
+    else
+        success_backup+=("Le dossier source $SOURCE existe.")
+    fi
+
+    # Si le dossier source existe, on continue
+    if [ -d "$SOURCE" ]; then
+        # Création d'une copie temporaire pour le test
+        cp -a "$SOURCE" "$BACKUP_DIR"
+
+        if [ -d "$BACKUP_DIR" ]; then
+            success_backup+=("La copie temporaire a été créée avec succès.")
+        else
+            errors_backup+=("Échec de la copie temporaire.")
+        fi
+
+        # Sauvegarde de la copie
+        tar -czf "$BACKUP_FILE" -C "$BACKUP_DIR" .
+
+        if [ -f "$BACKUP_FILE" ]; then
+            success_backup+=("La sauvegarde a été créée avec succès.")
+        else
+            errors_backup+=("Échec de la création de la sauvegarde.")
+        fi
+
+        # Suppression de la copie temporaire
+        rm -rf "$BACKUP_DIR"
+        
+        if [ ! -d "$BACKUP_DIR" ]; then
+            success_backup+=("La copie temporaire a été supprimée avec succès.")
+        else
+            errors_backup+=("Échec de la suppression de la copie temporaire.")
+        fi
+
+        # Restauration de la sauvegarde
+        mkdir -p "$RESTORE_DIR"
+        tar -xzf "$BACKUP_FILE" -C "$RESTORE_DIR"
+
+        if [ "$(ls -A "$RESTORE_DIR")" ]; then
+            success_backup+=("La restauration des fichiers a réussi.")
+        else
+            errors_backup+=("Échec de la restauration des fichiers.")
+        fi
+    fi
+
+    # Affichage des réussites en vert
+    for result in "${success_backup[@]}"; do
+        echo -e "${VERT}$result${RESET}"
+    done
+
+    # Affichage des erreurs en rouge
+    for result in "${errors_backup[@]}"; do
+        echo -e "${ROUGE}$result${RESET}"
+    done
+
+    echo -e "${BLEU}Test NFS terminé.${RESET}"
+}
+
+
+
+
+#----------Fin de déclaration des fonctions de test
 #----------------------------------------------------
 
 
@@ -790,24 +1496,13 @@ distro_to_monitor_index=(
     0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 1 0 0 0
 )
 
-# Variables globales pour stocker les résultats
-DETECTED_PM=""
-DETECTED_FW=""
-DETECTED_WS=""
-DETECTED_DNS=""
-DETECTED_SSH=""
-DETECTED_MAIL=""
-DETECTED_MSG=""
-DETECTED_NFS=""
-DETECTED_MONITOR=""
-
-
 # Fonction d'affichage d'un élément via son index
 get_element_by_index() {
     local array=("${!1}")
     local index=$2
     echo "${array[$index]}"
 }
+
 
 # Affichage du menu
 while true; do
@@ -879,3 +1574,215 @@ echo -e "   Serveur Mail détecté : ${GRAS}$DETECTED_MAIL${RESET}"
 echo -e "   Serveur de messagerie détecté : ${GRAS}$DETECTED_MSG${RESET}"
 echo -e "   Serveur NFS détecté : ${GRAS}$DETECTED_NFS${RESET}"
 echo -e "   Outil de monitoring détecté : ${GRAS}$DETECTED_MONITOR${RESET}"
+
+done
+
+# Début de la boucle principale
+while true; do
+
+    echo -e "\nVeuillez à présent choisir une option : \n\n[1] : Configuration\n[2] : Test\n"
+    echo -e "\n([1] est sélectionné par défaut)"
+    #Choix entre la partie Configuration et la partie Test
+    read -p "Veuillez choisir un nombre : " main_choice
+    main_choice="${main_choice:-1}"
+
+
+    #Début de la structure conditionnelle principale
+    if [ "$main_choice" == "1" ]; then
+        echo -e "\nVous avez sélectionné la partie config. Lancement du protocole de setup...\n"
+
+        echo -e "-> Protocole de setup-config lancé avec succès.\n"
+        
+        echo -e "Options de configuration :
+        [1] Tout
+        [2] Services
+        [3] Pare-feu
+        [4] SSH
+        [5] DNS
+        [6] Web
+        [7] Mail
+        [8] NTP
+        [9] NFS\n"
+
+        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " config_choice
+        config_choice="${config_choice:-1}"
+
+        # Début de la boucle pour la partie Configuration
+        while true; do
+
+            # Début de la config globale
+            if [ "$config_choice" == "1" ] ; then
+                config_all
+                break
+
+            elif [ "$config_choice" == "2" ] ; then
+                config_services
+                break
+
+            elif [ "$config_choice" == "3" ] ; then
+                config_firewall
+                break
+
+            elif [ "$config_choice" == "4" ] ; then
+                config_ssh
+                break
+
+            elif [ "$config_choice" == "5" ] ; then
+                config_dns
+                break
+
+            elif [ "$config_choice" == "6" ] ; then
+                config_web
+                break
+
+            elif [ "$config_choice" == "7" ] ; then
+                config_mail
+                break
+
+            elif [ "$config_choice" == "8" ] ; then
+                config_ntp
+                break
+
+            elif [ "$config_choice" == "9" ] ; then
+                config_nfs
+                break
+
+            # En cas de mauvaise réponse ou hors-sujet
+            else
+                echo -e "${ROUGE}Veuillez choisir une réponse valide.${RESET}"
+            fi
+        done
+
+    elif [ "$main_choice" == "2" ] ; then
+        echo -e "Vous avez sélectionné la partie test. Il est recommandé d'avoir d'abord été faire un tour du\
+        côté config pour avoir matière à tester.\n\n"
+
+        echo -e "-> Protocole de setup-test lancé avec succès.\n"
+
+        echo -e "Options de test :
+        [1] Tout
+        [2] Services
+        [3] Pare-feu
+        [4] SSH
+        [5] DNS
+        [6] Web
+        [7] Mail
+        [8] NTP
+        [9] NFS\n"
+
+        read -p "Veuillez entrer le nombre de votre choix ([1] est sélectionné par défaut) : " test_choice
+        test_choice="${test_choice:-1}"
+
+        #Début de la boucle pour la partie Test
+        while true; do 
+
+            if [ "$test_choice" == "1" ] ; then
+
+                # Appeler tous les tests
+                echo "Début du test complet..."
+                
+                test_all
+
+                echo -e "${BLEU}Tous les tests sont terminés.${RESET}"
+
+                break
+            
+
+            elif [ "$test_choice" == "2" ] ; then
+
+                echo "Début du test des services..."
+
+                test_services
+
+                echo -e "${BLEU}Test des services terminé.${RESET}"
+
+                break
+            
+
+            elif [ "$test_choice" == "3" ] ; then
+                
+                echo "Début du test du firewall..."
+
+                test_firewall
+
+                echo -e "${BLEU}Test du pare-feu terminé.${RESET}"
+
+                break
+
+
+            elif [ "$test_choice" == "4" ] ; then
+
+                echo "Début du test du SSH..."
+
+                test_ssh
+
+                echo -e "${BLEU}Test du SSH terminé.${RESET}"
+
+                break
+
+
+            elif [ "$test_choice" == "5" ] ; then
+
+                echo "Début du test du DNS..."
+
+                test_dns
+
+                echo -e "${BLEU}Test du DNS terminé.${RESET}"
+
+                break
+
+
+            elif [ "$test_choice" == "6" ] ; then
+
+                echo "Début du test des services web."
+
+                test_web
+
+                echo -e "${BLEU}Test des services web terminé.${RESET}"
+
+                break
+
+
+            elif [ "$test_choice" == "7" ] ; then
+
+                echo "Début du test des mails..."
+
+                test_mail
+
+                echo -e "${BLEU}Test des mails terminé.${RESET}"
+
+                break
+
+
+            elif [ "$test_choice" == "8" ] ; then
+
+                echo "Début du test NTP..."
+
+                test_ntp
+
+                echo -e "${BLEU}Test NTP terminé.${RESET}"
+
+                break
+
+
+            elif [ "$test_choice" == "9" ] ; then
+
+                echo "Début du test NFS..."
+
+                test_nfs
+
+                echo -e "${BLEU}Test NFS terminé.${RESET}"
+
+                
+            #En cas de mauvaise réponse ou hors-sujet
+            else
+                echo "${ROUGE}Veuillez choisir une réponse valide.${RESET}"
+            fi
+        done
+        break
+
+    else
+        echo -e "Veuillez sélectionner une entrée valable.\n"
+
+    fi
+done
